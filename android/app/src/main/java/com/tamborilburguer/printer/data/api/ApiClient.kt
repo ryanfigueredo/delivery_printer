@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 object ApiClient {
     
     // URL base da API (Vercel)
-    private const val BASE_URL = "https://tamboril-burguer.vercel.app/"
+    private const val BASE_URL = "https://delivery-back-eosin.vercel.app/"
     
     // API_KEY para autenticação (mesma do backend)
     private const val API_KEY = "7e229ceb049fcfa2d3c6ff29b4e50d202bd3855804e66fb02487419e79124b26"
