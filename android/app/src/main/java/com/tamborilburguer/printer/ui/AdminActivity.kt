@@ -12,6 +12,7 @@ import com.google.android.material.tabs.TabLayout
 import com.tamborilburguer.printer.R
 import com.tamborilburguer.printer.data.api.ApiClient
 import com.tamborilburguer.printer.data.model.*
+import com.tamborilburguer.printer.stone.MockPrinter
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -263,19 +264,110 @@ class AdminActivity : AppCompatActivity() {
     }
     
     private fun onOrderClick(order: Order) {
-        // Mostrar opções: marcar como saiu para entrega, etc
-        if (order.status == OrderStatus.PRINTED && order.orderType == "delivery") {
-            showMarkAsOutForDeliveryDialog(order)
-        } else {
-            Toast.makeText(this, "Pedido ${order.displayId ?: order.id}", Toast.LENGTH_SHORT).show()
+        // Mostrar opções baseado no status do pedido
+        when {
+            order.status == OrderStatus.PENDING -> {
+                // Pedido pendente - pode imprimir manualmente
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("🖨️ Imprimir pedido?")
+                    .setMessage(
+                        "Pedido: ${order.displayId ?: order.id}\n" +
+                        "Cliente: ${order.customerName}\n" +
+                        "Total: R$ ${String.format("%.2f", order.totalPrice)}\n\n" +
+                        "Deseja imprimir este pedido agora?\n\n" +
+                        "💡 Nota: O serviço automático também imprime pedidos pendentes."
+                    )
+                    .setPositiveButton("Imprimir") { _, _ ->
+                        printOrderManually(order)
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+            order.status == OrderStatus.PRINTED && order.orderType == "delivery" -> {
+                // Pedido impresso e é delivery - pode marcar como saiu
+                showMarkAsOutForDeliveryDialog(order)
+            }
+            order.status == OrderStatus.OUT_FOR_DELIVERY -> {
+                // Já saiu para entrega - mostrar info
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("🚚 Pedido em entrega")
+                    .setMessage(
+                        "Pedido: ${order.displayId ?: order.id}\n" +
+                        "Cliente: ${order.customerName}\n\n" +
+                        "Este pedido já foi marcado como saiu para entrega.\n" +
+                        "O cliente foi notificado via WhatsApp."
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+            else -> {
+                // Outros status - mostrar detalhes
+                val statusText = when (order.status) {
+                    OrderStatus.PENDING -> "⏳ Pendente"
+                    OrderStatus.PRINTED -> "✅ Impresso"
+                    OrderStatus.FINISHED -> "✅ Finalizado"
+                    OrderStatus.OUT_FOR_DELIVERY -> "🚚 Saiu para entrega"
+                    else -> order.status.toString()
+                }
+                
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Pedido ${order.displayId ?: order.id}")
+                    .setMessage(
+                        "Cliente: ${order.customerName}\n" +
+                        "Status: $statusText\n" +
+                        "Tipo: ${order.orderType ?: "restaurante"}\n" +
+                        "Total: R$ ${String.format("%.2f", order.totalPrice)}"
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+    }
+    
+    /**
+     * Imprime pedido manualmente (fora do serviço automático)
+     */
+    private fun printOrderManually(order: Order) {
+        lifecycleScope.launch {
+            try {
+                // Usar o mesmo método do serviço para imprimir
+                val receiptLines = com.tamborilburguer.printer.util.ReceiptFormatter.formatOrder(order)
+                
+                // ⚠️ MODO TESTE - Usando MockPrinter
+                // TODO: Substituir por SDK Stone quando tiver token
+                val printSuccess = com.tamborilburguer.printer.stone.MockPrinter.printOrder(order)
+                
+                if (printSuccess) {
+                    // Confirmar impressão na API
+                    val request = com.tamborilburguer.printer.data.model.UpdateStatusRequest(OrderStatus.PRINTED)
+                    val response = apiService.confirmOrderPrinted(order.id, request)
+                    
+                    if (response.isSuccessful) {
+                        Toast.makeText(this@AdminActivity, "✅ Pedido ${order.displayId ?: order.id} impresso!", Toast.LENGTH_SHORT).show()
+                        loadOrders() // Recarregar lista
+                    } else {
+                        Toast.makeText(this@AdminActivity, "⚠️ Impresso, mas erro ao confirmar na API", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this@AdminActivity, "❌ Erro ao imprimir pedido", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro ao imprimir pedido manualmente", e)
+                Toast.makeText(this@AdminActivity, "Erro: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
     
     private fun showMarkAsOutForDeliveryDialog(order: Order) {
+        val displayId = order.displayId ?: order.id
         android.app.AlertDialog.Builder(this)
-            .setTitle("Marcar como saiu para entrega?")
-            .setMessage("Pedido ${order.displayId ?: order.id} - ${order.customerName}")
-            .setPositiveButton("Sim") { _, _ ->
+            .setTitle("🚚 Pedido saindo para entrega")
+            .setMessage(
+                "Pedido: $displayId\n" +
+                "Cliente: ${order.customerName}\n\n" +
+                "O bot vai enviar uma mensagem automática para o cliente informando que o pedido está a caminho!"
+            )
+            .setPositiveButton("Confirmar") { _, _ ->
                 markOrderOutForDelivery(order)
             }
             .setNegativeButton("Cancelar", null)
@@ -285,12 +377,60 @@ class AdminActivity : AppCompatActivity() {
     private fun markOrderOutForDelivery(order: Order) {
         lifecycleScope.launch {
             try {
+                // Mostrar loading
+                val progressDialog = android.app.ProgressDialog(this@AdminActivity).apply {
+                    setMessage("Enviando notificação ao cliente...")
+                    setCancelable(false)
+                    show()
+                }
+                
+                // Marcar como saiu para entrega
                 val response = apiService.markOrderOutForDelivery(order.id)
                 if (response.isSuccessful) {
-                    Toast.makeText(this@AdminActivity, "Pedido marcado como saiu para entrega!", Toast.LENGTH_SHORT).show()
-                    // Aqui pode chamar a API de notificação também
+                    // Chamar API de notificação para enviar mensagem via bot
+                    try {
+                        val notifyResponse = apiService.notifyDelivery(
+                            order.id,
+                            com.tamborilburguer.printer.data.model.DeliveryNotificationRequest()
+                        )
+                        
+                        progressDialog.dismiss()
+                        
+                        if (notifyResponse.isSuccessful) {
+                            android.app.AlertDialog.Builder(this@AdminActivity)
+                                .setTitle("✅ Sucesso!")
+                                .setMessage(
+                                    "Pedido ${order.displayId ?: order.id} marcado como saiu para entrega!\n\n" +
+                                    "📱 Mensagem enviada ao cliente via WhatsApp."
+                                )
+                                .setPositiveButton("OK", null)
+                                .show()
+                        } else {
+                            android.app.AlertDialog.Builder(this@AdminActivity)
+                                .setTitle("⚠️ Atenção")
+                                .setMessage(
+                                    "Pedido marcado como saiu para entrega, mas houve um problema ao enviar a mensagem.\n\n" +
+                                    "O cliente será notificado na próxima atualização."
+                                )
+                                .setPositiveButton("OK", null)
+                                .show()
+                        }
+                    } catch (e: Exception) {
+                        progressDialog.dismiss()
+                        Log.e(TAG, "Erro ao notificar cliente", e)
+                        android.app.AlertDialog.Builder(this@AdminActivity)
+                            .setTitle("⚠️ Atenção")
+                            .setMessage(
+                                "Pedido marcado como saiu para entrega!\n\n" +
+                                "Houve um problema ao enviar a mensagem, mas o pedido foi atualizado."
+                            )
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                    
                     loadOrders()
                 } else {
+                    progressDialog.dismiss()
                     Toast.makeText(this@AdminActivity, "Erro ao marcar pedido", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
