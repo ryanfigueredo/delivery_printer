@@ -1,0 +1,31 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://oss.sonatype.org/content/repositories/snapshots/" }
+        // Repositório do SDK Stone (token será lido do local.properties)
+        def localProp = new Properties()
+        def localPropFile = new File(settingsDir, 'local.properties')
+        if (localPropFile.exists()) {
+            localProp.load(new FileInputStream(localPropFile))
+            def token = localProp['packageCloudReadToken'] ?: System.getenv('PACKAGECLOUD_READ_TOKEN') ?: ""
+            if (token && token != "SEU_TOKEN_AQUI") {
+                maven { 
+                    url "https://packagecloud.io/priv/${token}/stone/pos-android/maven2"
+                }
+            }
+        }
+    }
+}
+
+rootProject.name = "TamborilPrinter"
+include ':app'
