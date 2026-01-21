@@ -283,9 +283,15 @@ class AdminActivity : AppCompatActivity() {
                     .setNegativeButton("Cancelar", null)
                     .show()
             }
-            order.status == OrderStatus.PRINTED && order.orderType == "delivery" -> {
-                // Pedido impresso e é delivery - pode marcar como saiu
-                showMarkAsOutForDeliveryDialog(order)
+            order.status == OrderStatus.PRINTED -> {
+                // Pedido impresso - mostrar opções baseado no tipo
+                if (order.orderType == "delivery") {
+                    // Delivery: pode marcar como saiu para entrega
+                    showOrderOptionsDialog(order)
+                } else {
+                    // Restaurante: apenas mostrar detalhes
+                    showOrderDetailsDialog(order)
+                }
             }
             order.status == OrderStatus.OUT_FOR_DELIVERY -> {
                 // Já saiu para entrega - mostrar info
@@ -302,26 +308,63 @@ class AdminActivity : AppCompatActivity() {
             }
             else -> {
                 // Outros status - mostrar detalhes
-                val statusText = when (order.status) {
-                    OrderStatus.PENDING -> "⏳ Pendente"
-                    OrderStatus.PRINTED -> "✅ Impresso"
-                    OrderStatus.FINISHED -> "✅ Finalizado"
-                    OrderStatus.OUT_FOR_DELIVERY -> "🚚 Saiu para entrega"
-                    else -> order.status.toString()
-                }
-                
-                android.app.AlertDialog.Builder(this)
-                    .setTitle("Pedido ${order.displayId ?: order.id}")
-                    .setMessage(
-                        "Cliente: ${order.customerName}\n" +
-                        "Status: $statusText\n" +
-                        "Tipo: ${order.orderType ?: "restaurante"}\n" +
-                        "Total: R$ ${String.format("%.2f", order.totalPrice)}"
-                    )
-                    .setPositiveButton("OK", null)
-                    .show()
+                showOrderDetailsDialog(order)
             }
         }
+    }
+    
+    /**
+     * Mostra dialog com opções para pedido impresso (delivery)
+     */
+    private fun showOrderOptionsDialog(order: Order) {
+        val displayId = order.displayId ?: order.id
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Pedido ${displayId}")
+            .setMessage(
+                "Cliente: ${order.customerName}\n" +
+                "Tipo: Delivery\n" +
+                "Total: R$ ${String.format("%.2f", order.totalPrice)}\n\n" +
+                "O que deseja fazer?"
+            )
+            .setPositiveButton("🚚 Marcar como saiu") { _, _ ->
+                showMarkAsOutForDeliveryDialog(order)
+            }
+            .setNeutralButton("Ver detalhes") { _, _ ->
+                showOrderDetailsDialog(order)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    
+    /**
+     * Mostra detalhes do pedido
+     */
+    private fun showOrderDetailsDialog(order: Order) {
+        val statusText = when (order.status) {
+            OrderStatus.PENDING -> "⏳ Pendente"
+            OrderStatus.PRINTED -> "✅ Impresso"
+            OrderStatus.FINISHED -> "✅ Finalizado"
+            OrderStatus.OUT_FOR_DELIVERY -> "🚚 Saiu para entrega"
+            else -> order.status.toString()
+        }
+        
+        val itemsText = order.items.joinToString("\n") { item ->
+            "${item.quantity}x ${item.name} - R$ ${String.format("%.2f", item.price * item.quantity)}"
+        }
+        
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Pedido ${order.displayId ?: order.id}")
+            .setMessage(
+                "Cliente: ${order.customerName}\n" +
+                "Telefone: ${order.customerPhone}\n" +
+                "Status: $statusText\n" +
+                "Tipo: ${order.orderType ?: "restaurante"}\n" +
+                (if (order.deliveryAddress != null) "Endereço: ${order.deliveryAddress}\n" else "") +
+                "\nItens:\n$itemsText\n\n" +
+                "Total: R$ ${String.format("%.2f", order.totalPrice)}"
+            )
+            .setPositiveButton("OK", null)
+            .show()
     }
     
     /**
