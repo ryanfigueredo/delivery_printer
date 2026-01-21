@@ -22,7 +22,13 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug // Usar debug signing para build de teste
         }
+    }
+    
+    // Configuração para gerar APK e AAB
+    buildFeatures {
+        buildConfig true
     }
     
     compileOptions {
